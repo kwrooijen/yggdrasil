@@ -1,21 +1,15 @@
 (ns yggdrasil.sente
   (:require
    [taoensso.sente :as sente]
-   [taoensso.sente.server-adapters.aleph :refer [get-sch-adapter]]
    [yggdrasil.db :refer [server-db]]
    [yggdrasil.core :as y]
    [yggdrasil.util :refer [map-kv]]))
 
-(let [chsk-server (sente/make-channel-socket-server!
-                   (get-sch-adapter)
-                   {:packer :edn
-                    :user-id-fn (comp :uid :session)})
-      {:keys [ch-recv send-fn connected-uids ajax-post-fn ajax-get-or-ws-handshake-fn]} chsk-server]
-  (def ring-ajax-post                ajax-post-fn)
-  (def ring-ajax-get-or-ws-handshake ajax-get-or-ws-handshake-fn)
-  (def ch-chsk                       ch-recv)
-  (def chsk-send!                    send-fn)
-  (def connected-uids                connected-uids))
+(def ^:dynamic ring-ajax-post)
+(def ^:dynamic ring-ajax-get-or-ws-handshake)
+(def ^:dynamic ch-chsk)
+(def ^:dynamic chsk-send!)
+(def ^:dynamic connected-uids)
 
 (defmulti -event-msg-handler
   "Multimethod to handle Sente `event-msg`s"
@@ -65,11 +59,21 @@
   [{:as ev-msg :keys [id ?data event]}]
   (-event-msg-handler ev-msg))
 
-(defn start-router []
-  (sente/start-server-chsk-router! ch-chsk event-msg-handler))
+(defn start! [adapter]
+  (let [chsk-server (sente/make-channel-socket-server!
+                     adapter
+                     {:packer :edn
+                      :user-id-fn (comp :uid :session)})
+        {:keys [ch-recv send-fn connected-uids ajax-post-fn ajax-get-or-ws-handshake-fn]} chsk-server]
+    (alter-var-root #'yggdrasil.sente/ring-ajax-post                (fn [_] ajax-post-fn))
+    (alter-var-root #'yggdrasil.sente/ring-ajax-get-or-ws-handshake (fn [_] ajax-get-or-ws-handshake-fn))
+    (alter-var-root #'yggdrasil.sente/ch-chsk                       (fn [_] ch-recv))
+    (alter-var-root #'yggdrasil.sente/chsk-send!                    (fn [_] send-fn))
+    (alter-var-root #'yggdrasil.sente/connected-uids                (fn [_] connected-uids))
+    (sente/start-server-chsk-router! ch-chsk event-msg-handler)))
 
-(defn handler-get [request]
+(defn ws-handler-get [request]
   (ring-ajax-get-or-ws-handshake request))
 
-(defn handler-post [request]
+(defn ws-handler-post [request]
   (ring-ajax-post request))
